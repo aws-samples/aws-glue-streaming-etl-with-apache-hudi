@@ -1,0 +1,411 @@
+Description:  This template deploys a AWS Glue Streaming job that reads JSON records from Kinesis and uses Apache Hudi marketplace connector to write S3 as a Hudi table. The script then demos the in-pace update, Time-travel forward/backward schema evolution & Multi-column partitioning features.
+
+Parameters:
+
+  HudiConnectionName:
+    Description: The name of the AWS Glue Connection created in Glue Studio using the deep URL
+    Type: String
+    Default: my-hudi-connection
+
+  ArtifactsBucket:
+    Description: The bucket name where UDF Script is stored
+    Type: String
+    Default: khokharn-new-bucket-hudi-mumbai
+
+  ArtifactsPrefix:
+    Description: The key prefix inside S3 bucket where UDF Script is present
+    Type: String
+    Default: script
+
+  ScriptArtifact:
+    Description: The key name inside S3 bucket which represents the UDF Script
+    Type: String
+    Default: glue_job_script.py
+  
+  KinesisIterator:
+    Description: The position from where to read from Kinesis stream, valid values are LATEST, TRIM_HORIZON or EARLIEST
+    Type: String
+    Default: LATEST
+
+  WindowSize:
+    Description: The amount of time to spend processing each batch
+    Type: String
+    Default: 10 seconds
+
+
+Resources:
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput: 
+        Name: !Join
+        - "_"
+        - - "hudi_demo_db"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+
+  KinesisDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Join
+      - "_"
+      - - "hudi_demo_stream"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+      ShardCount: 1
+
+  KinesisTableInGlueCatalog:
+    Type: AWS::Glue::Table
+    DependsOn:
+      - GlueDatabase
+      - KinesisDataStream
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput: 
+          Name: !Join
+          - "_"
+          - - "hudi_demo_kinesis_stream_table"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"
+          StorageDescriptor:
+            Location: !Ref KinesisDataStream
+            Parameters: 
+              typeOfData: kinesis
+              streamARN: !Join ['', ["arn:aws:kinesis:", !Ref AWS::Region, ":", !Ref AWS::AccountId, ":stream/", !Ref KinesisDataStream]]
+            InputFormat: org.apache.hadoop.mapred.TextInputFormat
+            OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+            SerdeInfo: 
+              SerializationLibrary: org.openx.data.jsonserde.JsonSerDe
+          Parameters:
+            classification: json
+
+  LocalS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete    
+    Properties:      
+      BucketName: !Join
+      - "-"
+      - - "hudi-demo-bucket"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+
+  # Custom resource to copy source code Script from the published artifacts
+  # bucket to the local LocalS3BucketForStudioScript (created above)
+  TriggerCopySourceScriptFunction:
+      Type: AWS::CloudFormation::CustomResource
+      DependsOn:
+        - LocalS3Bucket
+      Properties: 
+        ServiceToken: !GetAtt CopySourceScriptFunction.Arn
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsPrefix: !Ref ArtifactsPrefix
+        ScriptArtifact: !Ref ScriptArtifact
+        LocalS3Bucket: !Ref LocalS3Bucket
+        LocalScriptfile: 'glue_job_script.py'
+
+  CopySourceScriptFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - !Join 
+          - ''
+          - - 'arn:'
+            - !Ref 'AWS::Partition'
+            - ':iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+
+  CopySourceScriptFunctionPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${LocalS3Bucket}/*'
+          - Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${ArtifactsBucket}/*'
+              - !Sub 'arn:aws:s3:::${ArtifactsBucket}'
+        Version: 2012-10-17
+      PolicyName: CopySourceScriptFunctionPolicy
+      Roles:
+        - !Ref CopySourceScriptFunctionRole
+
+  CopySourceScriptFunction:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - CopySourceScriptFunctionPolicy
+      - CopySourceScriptFunctionRole
+    Properties:
+      Role: !GetAtt 
+        - CopySourceScriptFunctionRole
+        - Arn
+      Handler: index.on_event
+      Runtime: python3.8
+      Timeout: 900
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import os
+          import boto3
+          def copy_zip(event):
+            artifact_bucket = event['ResourceProperties']['ArtifactsBucket']
+            artifact_prefix = event['ResourceProperties']['ArtifactsPrefix']
+            source_Script = event['ResourceProperties']['ScriptArtifact']
+            local_bucket = event['ResourceProperties']['LocalS3Bucket']
+            local_Script = event['ResourceProperties']['LocalScriptfile']
+            print(f"Copying s3://{artifact_bucket}/{artifact_prefix}/{source_Script} to s3://{local_bucket}/artifacts/{local_Script}")
+            s3 = boto3.resource('s3')
+            copy_source= { 'Bucket' : artifact_bucket, 'Key': f"{artifact_prefix}/{source_Script}" }
+            dest = s3.Bucket(local_bucket)
+            dest.copy(copy_source, 'artifacts/'+local_Script)
+
+          def on_event(event, context):
+            print(event)
+            responseData = {}
+            status = cfnresponse.SUCCESS
+            if event['RequestType'] != 'Delete':
+              try:
+                copy_zip(event)
+              except Exception as e:
+                print(e)
+                responseData["Error"] = f"Exception thrown: {e}"
+                status = cfnresponse.FAILED
+                responseData['Data'] = "Success"
+            cfnresponse.send(event, context, status, responseData)
+  
+  ExecuteGlueHudiJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+      - "-"
+      - - "GlueJobExecutionRole"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonKinesisReadOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Path: /
+
+  HudiStreamingJob:
+    Type: 'AWS::Glue::Job'
+    DependsOn:
+      - KinesisDataStream
+      - GlueDatabase
+      - ExecuteGlueHudiJobRole
+      - LocalS3Bucket
+    Properties: 
+      Command: 
+        Name: gluestreaming
+        PythonVersion: 3
+        ScriptLocation: !Join ['', ["s3://", !Ref LocalS3Bucket, "/artifacts/glue_job_script.py"]]
+      Connections:
+        Connections:
+          - !Ref HudiConnectionName
+      DefaultArguments:
+        '--database_name': !Ref GlueDatabase               
+        '--kinesis_table_name': !Ref KinesisTableInGlueCatalog
+        '--hudi_table_name': 'hudi_demo_table'
+        '--starting_position_of_kinesis_iterator': !Ref KinesisIterator
+        '--window_size': !Ref WindowSize
+        '--s3_path_hudi': !Join ['', ["s3://", !Ref LocalS3Bucket, "/hudi_stuff/hudi_demo_table/"]]
+        '--s3_path_spark': !Join ['', ["s3://", !Ref LocalS3Bucket, "/spark_checkpoints/"]]
+        '--spark-event-logs-path': !Join ['', ["s3://", !Ref LocalS3Bucket, "/sparkHistoryLogs/"]]
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--TempDir': !Join ['', ["s3://", !Ref LocalS3Bucket, "/temp"]]
+        '--job-language': 'python'
+        '--enable-metrics': 'true' 
+        '--job-bookmark-option': 'job-bookmark-enable'
+        '--enable-glue-datacatalog': 'true'
+        '--enable-spark-ui': 'true'
+        '--class': 'GlueApp'
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      GlueVersion: 3.0
+      MaxRetries: 0
+      Name: !Join
+      - "-"
+      - - "Hudi_Streaming_Job"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+      Role: !GetAtt ExecuteGlueHudiJobRole.Arn
+
+  CleanupBucketOnStackDelete:
+    Type: Custom::cleanupbucket
+    DependsOn:
+      - LocalS3Bucket
+    Properties:
+      ServiceToken: !GetAtt HelperLambdaForCleanupBucketOnStackDelete.Arn
+      BucketName: !Ref LocalS3Bucket
+
+  HelperLambdaForCleanupBucketOnStackDelete:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LocalS3Bucket
+      - ExecuteLambdaFnsRole
+    Properties:
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            from botocore.vendored import requests
+
+            def lambda_handler(event, context):
+                try:
+                    bucket = event['ResourceProperties']['BucketName']
+
+                    if event['RequestType'] == 'Delete':
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(bucket)
+                        for obj in bucket.objects.filter():
+                            s3.Object(bucket.name, obj.key).delete()
+                    sendResponseCfn(event, context, "SUCCESS")
+                except Exception as e:
+                    print(e)
+                    sendResponseCfn(event, context, "FAILED")
+
+            def sendResponseCfn(event, context, responseStatus):
+                response_body = {'Status': responseStatus,
+                                 'Reason': 'Log stream name: ' + context.log_stream_name,
+                                 'PhysicalResourceId': context.log_stream_name,
+                                 'StackId': event['StackId'],
+                                 'RequestId': event['RequestId'],
+                                 'LogicalResourceId': event['LogicalResourceId'],
+                                 'Data': json.loads("{}")}
+                requests.put(event['ResponseURL'], data=json.dumps(response_body))
+      FunctionName: !Join
+      - "-"
+      - - "helper_lambda_for_cleanup_bucket_on_stack_delete"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+      MemorySize: 128
+      Runtime: python3.6
+      Description: Lambda function that executes during stack creation and deletion to achieve CleanupBucketOnStackDelete
+      Handler: index.lambda_handler
+      Role: !GetAtt ExecuteLambdaFnsRole.Arn
+      Timeout: 900      
+      
+  ExecuteLambdaFnsRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+      - LocalS3Bucket
+    Properties:
+      RoleName: !Join
+      - "-"
+      - - "HelperLambdaRole"
+        - !Select
+          - 0
+          - !Split
+            - "-"
+            - !Select
+              - 2
+              - !Split
+                - "/"
+                - !Ref "AWS::StackId"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Join
+          - "-"
+          - - "helper_lambda_policy"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement:
+              - 
+                Effect: Allow
+                Action:
+                  - s3:*
+                Resource: 
+                  - !Join ['', ["arn:aws:s3:::", !Ref LocalS3Bucket]]
+                  - !Join ['', ["arn:aws:s3:::", !Ref LocalS3Bucket, "/*"]] 
+      Path: /
