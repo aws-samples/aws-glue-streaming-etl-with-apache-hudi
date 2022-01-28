@@ -15,7 +15,7 @@ Parameters:
   ArtifactsPrefix:
     Description: The key prefix inside S3 bucket where UDF Script is present
     Type: String
-    Default: artifacts/BDB-1719-Building-lake-house-architecture-for-streaming-data
+    Default: artifacts/BDB-1719-building-hudi-data-lake-for-streaming-data
 
   ScriptArtifact:
     Description: The key name inside S3 bucket which represents the UDF Script
