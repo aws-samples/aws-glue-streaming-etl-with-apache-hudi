@@ -5,7 +5,7 @@ Parameters:
   HudiConnectionName:
     Description: The name of the AWS Glue Connection created in Glue Studio using the deep URL
     Type: String
-    Default: my-hudi-connection
+    Default: hudi-connection
 
   ArtifactsBucket:
     Description: The bucket name where UDF Script is stored
