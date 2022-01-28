@@ -1,4 +1,4 @@
-Description:  This template deploys a AWS Glue Streaming job that reads JSON records from Kinesis and uses Apache Hudi marketplace connector to write S3 as a Hudi table. The script then demos the in-pace update, Time-travel forward/backward schema evolution & Multi-column partitioning features.
+Description:  This template deploys a AWS Glue Streaming job that reads JSON records from Kinesis and uses Apache Hudi marketplace connector to write S3 as a Hudi table. The script then implements features like the in-pace update, multi-column partitioning & schema flexibility.
 
 Parameters:
 
@@ -10,12 +10,12 @@ Parameters:
   ArtifactsBucket:
     Description: The bucket name where UDF Script is stored
     Type: String
-    Default: khokharn-new-bucket-hudi-mumbai
+    Default: aws-bigdata-blog
 
   ArtifactsPrefix:
     Description: The key prefix inside S3 bucket where UDF Script is present
     Type: String
-    Default: script
+    Default: artifacts/BDB-1719-Building-lake-house-architecture-for-streaming-data
 
   ScriptArtifact:
     Description: The key name inside S3 bucket which represents the UDF Script
