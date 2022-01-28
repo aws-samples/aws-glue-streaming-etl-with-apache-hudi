@@ -1,11 +1,10 @@
-## My Project
+## Build a serverless pipeline to analyze streaming data using AWS Glue, Apache Hudi & Amazon S3
 
-TODO: Fill this README out!
+This repository consists a Cloudformation template and pyspark code sample for Glue streaming job to implement following ETL pipeline :
 
-Be sure to:
+<img width="652" alt="Screenshot 2022-01-29 at 12 21 45 AM" src="https://user-images.githubusercontent.com/46901738/151604760-5809ebaa-fe0d-4260-9316-1562cef9c687.png">
 
-* Change the title in this README
-* Edit your repository description on GitHub
+Related AWS Blog : <link-placeholder>
 
 ## Security
 
