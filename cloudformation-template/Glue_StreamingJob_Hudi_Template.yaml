@@ -266,7 +266,7 @@ Resources:
         '--database_name': !Ref GlueDatabase               
         '--kinesis_table_name': !Ref KinesisTableInGlueCatalog
         '--hudi_table_name': 'hudi_demo_table'
-        '--starting_position_of_kinesis_iterator': !Ref KinesisIterator
+        '--starting_position_of_kinesis_iterator': !Ref KinesisIteratorPosition
         '--window_size': !Ref WindowSize
         '--s3_path_hudi': !Join ['', ["s3://", !Ref LocalS3Bucket, "/hudi_stuff/hudi_demo_table/"]]
         '--s3_path_spark': !Join ['', ["s3://", !Ref LocalS3Bucket, "/spark_checkpoints/"]]
