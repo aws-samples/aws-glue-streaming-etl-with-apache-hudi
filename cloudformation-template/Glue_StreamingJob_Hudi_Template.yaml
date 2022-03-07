@@ -404,7 +404,10 @@ Resources:
               - 
                 Effect: Allow
                 Action:
-                  - s3:*
+                  - s3:GetObject
+                  - s3:DeleteObjectVersion
+                  - s3:ListBucket
+                  - s3:DeleteObject
                 Resource: 
                   - !Join ['', ["arn:aws:s3:::", !Ref LocalS3Bucket]]
                   - !Join ['', ["arn:aws:s3:::", !Ref LocalS3Bucket, "/*"]] 
