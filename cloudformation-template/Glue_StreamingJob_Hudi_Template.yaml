@@ -8,27 +8,27 @@ Parameters:
     Default: hudi-connection
 
   ArtifactsBucket:
-    Description: The bucket name where UDF Script is stored
+    Description: The bucket name where UDF Script is stored. Do not modify if you prefer to use artifacts of parent AWS Blog. 
     Type: String
     Default: aws-bigdata-blog
 
   ArtifactsPrefix:
-    Description: The key prefix inside S3 bucket where UDF Script is present
+    Description: The key prefix inside S3 bucket where UDF Script is present. Do not modify if you prefer to use artifacts of parent AWS Blog.
     Type: String
     Default: artifacts/BDB-1719-building-hudi-data-lake-for-streaming-data
 
   ScriptArtifact:
-    Description: The key name inside S3 bucket which represents the UDF Script
+    Description: The key name inside S3 bucket which represents the UDF Script. Do not modify if you prefer to use artifacts of parent AWS Blog.
     Type: String
     Default: glue_job_script.py
   
-  KinesisIterator:
+  KinesisIteratorPosition:
     Description: The position from where to read from Kinesis stream, valid values are LATEST, TRIM_HORIZON or EARLIEST
     Type: String
     Default: LATEST
 
   WindowSize:
-    Description: The amount of time to spend processing each batch
+    Description: The amount of time to spend processing each batch with AWS Glue job
     Type: String
     Default: 10 seconds
 
