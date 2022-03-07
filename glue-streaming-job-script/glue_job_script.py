@@ -44,11 +44,11 @@ data_frame_DataSource0 = glueContext.create_data_frame.from_catalog(
 
 # config
 commonConfig = {
-  'path': s3_path_hudi
+	'path': s3_path_hudi
 }
 
 hudiWriteConfig = {
-  'className' : 'org.apache.hudi',
+	'className' : 'org.apache.hudi',
 	'hoodie.table.name': hudi_table_name,
 	'hoodie.datasource.write.operation': 'upsert',
 	'hoodie.datasource.write.table.type': 'COPY_ON_WRITE',
@@ -73,9 +73,9 @@ hudiGlueConfig = {
 }
 
 combinedConf = {
-  **commonConfig, 
-  **hudiWriteConfig, 
-  **hudiGlueConfig
+	**commonConfig, 
+	**hudiWriteConfig, 
+	**hudiGlueConfig
 }
 
 # ensure the incomong record has the correct current schema, new fresh columns are fine, if a column exists in current schema but not in incoming record then manually add before inserting
