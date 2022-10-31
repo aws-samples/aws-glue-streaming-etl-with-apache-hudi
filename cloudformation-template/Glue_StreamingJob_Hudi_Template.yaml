@@ -315,7 +315,7 @@ Resources:
         ZipFile: |
             import json
             import boto3
-            from botocore.vendored import requests
+            import cfnresponse
 
             def lambda_handler(event, context):
                 try:
@@ -326,20 +326,16 @@ Resources:
                         bucket = s3.Bucket(bucket)
                         for obj in bucket.objects.filter():
                             s3.Object(bucket.name, obj.key).delete()
-                    sendResponseCfn(event, context, "SUCCESS")
+                    sendResponseCfn(event, context, cfnresponse.SUCCESS)
                 except Exception as e:
                     print(e)
-                    sendResponseCfn(event, context, "FAILED")
+                    sendResponseCfn(event, context, cfnresponse.FAILED)
 
             def sendResponseCfn(event, context, responseStatus):
-                response_body = {'Status': responseStatus,
-                                 'Reason': 'Log stream name: ' + context.log_stream_name,
-                                 'PhysicalResourceId': context.log_stream_name,
-                                 'StackId': event['StackId'],
-                                 'RequestId': event['RequestId'],
-                                 'LogicalResourceId': event['LogicalResourceId'],
-                                 'Data': json.loads("{}")}
-                requests.put(event['ResponseURL'], data=json.dumps(response_body))
+                responseValue = context.log_stream_name
+                responseData = {}
+                responseData['Data'] = responseValue
+                cfnresponse.send(event, context, responseStatus, responseData, context.log_stream_name)
       FunctionName: !Join
       - "-"
       - - "helper_lambda_for_cleanup_bucket_on_stack_delete"
@@ -385,6 +381,12 @@ Resources:
                 - lambda.amazonaws.com
             Action:
               - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Join 
+          - ''
+          - - 'arn:'
+            - !Ref 'AWS::Partition'
+            - ':iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
         - PolicyName: !Join
           - "-"
